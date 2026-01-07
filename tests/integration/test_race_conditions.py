@@ -1,0 +1,458 @@
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from decimal import Decimal
+
+from sqlalchemy.exc import OperationalError
+
+from app.domain.exceptions import InsufficientBalanceError
+from app.domain.services.deposit_service import DepositService
+from app.domain.services.withdrawal_service import WithdrawalService
+
+
+class TestRaceConditions:
+    def test_concurrent_withdrawals_prevent_overdraft(self, db):
+        from app.domain.services.auth_service import AuthService
+        from app.infrastructure.repositories.account_repository import AccountRepository
+        from tests.conftest import TestSessionLocal
+
+        unique_email = f"race_test_withdrawal_{int(time.time() * 1000)}@example.com"
+
+        auth_service = AuthService(db)
+        user = auth_service.register_user(
+            email=unique_email,
+            full_name="Race Test User",
+            password="password123",
+        )
+
+        account_repo = AccountRepository(db)
+        account = account_repo.get_by_user_id(user.id)
+        account.balance = Decimal("100.00")
+        db.commit()
+        account_id = account.id
+
+        initial_balance = Decimal("100.00")
+        withdrawal_amount = Decimal("50.00")
+
+        results = []
+        errors = []
+
+        def attempt_withdrawal(attempt_id: int):
+            max_retries = 3
+            for retry in range(max_retries):
+                thread_db = TestSessionLocal()
+                try:
+                    thread_service = WithdrawalService(thread_db)
+
+                    transaction = thread_service.create_pending_withdrawal(
+                        account_id=account_id,
+                        amount=withdrawal_amount,
+                        currency="USD",
+                        idempotency_key=f"test-concurrent-{attempt_id}",
+                    )
+
+                    thread_db.commit()
+                    return {
+                        "success": True,
+                        "transaction_id": str(transaction.id),
+                        "attempt": attempt_id,
+                    }
+
+                except InsufficientBalanceError as e:
+                    thread_db.rollback()
+                    return {"success": False, "error": str(e), "attempt": attempt_id}
+
+                except OperationalError as e:
+                    thread_db.rollback()
+                    if retry < max_retries - 1:
+                        time.sleep(0.01 * (2**retry))
+                        continue
+                    return {"success": False, "error": str(e), "attempt": attempt_id}
+
+                except Exception as e:
+                    thread_db.rollback()
+                    return {"success": False, "error": str(e), "attempt": attempt_id}
+
+                finally:
+                    thread_db.close()
+
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            futures = [executor.submit(attempt_withdrawal, i) for i in range(5)]
+
+            for future in as_completed(futures):
+                result = future.result()
+                if result["success"]:
+                    results.append(result)
+                else:
+                    errors.append(result)
+
+        print(
+            f"\n Race Condition Test Results:\n"
+            f"   Successful withdrawals: {len(results)}\n"
+            f"   Failed withdrawals: {len(errors)}"
+        )
+        if errors:
+            print(f"   Error details: {errors[0].get('error', 'Unknown')}")
+
+        assert (
+            len(results) == 5
+        ), f"Expected 5 pending transactions, got {len(results)}. Errors: {len(errors)}"
+        assert len(errors) == 0, f"Expected 0 failures during PENDING creation, got {len(errors)}"
+
+        db.commit()
+        db.expire_all()
+        account_repo = AccountRepository(db)
+        final_account = account_repo.get_by_id(account_id)
+        final_balance = final_account.balance
+
+        assert final_balance == initial_balance, (
+            f"CRITICAL: Balance changed from {initial_balance} to {final_balance}. "
+            f"Balance should only change on SUCCESS, not PENDING!"
+        )
+
+        assert final_balance >= 0, (
+            f"FATAL: Balance is NEGATIVE ({final_balance})! " f"RACE CONDITION ALLOWED OVERDRAFT!"
+        )
+
+        print(
+            f"\n Race condition test PASSED:\n"
+            f"   Initial balance: ${initial_balance}\n"
+            f"   Successful withdrawals: {len(results)}\n"
+            f"   Failed withdrawals: {len(errors)}\n"
+            f"   Final balance: ${final_balance}"
+        )
+
+    def test_concurrent_deposits_sum_correctly(self, db):
+        from app.domain.services.auth_service import AuthService
+        from app.infrastructure.repositories.account_repository import AccountRepository
+        from tests.conftest import TestSessionLocal
+
+        unique_email = f"race_test_deposit_{int(time.time() * 1000)}@example.com"
+
+        auth_service = AuthService(db)
+        user = auth_service.register_user(
+            email=unique_email,
+            full_name="Deposit Race Test",
+            password="password123",
+        )
+
+        account_repo = AccountRepository(db)
+        account = account_repo.get_by_user_id(user.id)
+        account_id = account.id
+        initial_balance = account.balance
+
+        deposit_amount = Decimal("10.00")
+        num_deposits = 10
+
+        def attempt_deposit(attempt_id: int):
+            max_retries = 3
+            for retry in range(max_retries):
+                thread_db = TestSessionLocal()
+                try:
+                    thread_service = DepositService(thread_db)
+                    transaction = thread_service.create_pending_deposit(
+                        account_id=account_id,
+                        amount=deposit_amount,
+                        currency="USD",
+                        idempotency_key=f"test-deposit-{attempt_id}",
+                    )
+                    thread_service.complete_deposit(
+                        transaction_id=transaction.id,
+                        bank_transaction_id=f"BANK-TEST-{attempt_id}",
+                    )
+                    thread_db.commit()
+                    return {"success": True, "attempt": attempt_id}
+                except OperationalError as e:
+                    thread_db.rollback()
+                    if retry < max_retries - 1:
+                        time.sleep(0.01 * (2**retry))
+                        continue
+                    return {"success": False, "error": str(e), "attempt": attempt_id}
+                except Exception as e:
+                    thread_db.rollback()
+                    return {"success": False, "error": str(e), "attempt": attempt_id}
+                finally:
+                    thread_db.close()
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(attempt_deposit, i) for i in range(num_deposits)]
+            results = [future.result() for future in as_completed(futures)]
+
+        successful = [r for r in results if r["success"]]
+        failed = [r for r in results if not r["success"]]
+        if failed:
+            print(f"\n Failed deposits ({len(failed)}): {failed[:3]}")
+
+        assert len(successful) >= 1, (
+            f"All deposits failed: {len(successful)} successes, {len(failed)} failures. "
+            f"At least one deposit should succeed with retries."
+        )
+
+        db.commit()
+        db.expire_all()
+        account_repo = AccountRepository(db)
+        final_account = account_repo.get_by_id(account_id)
+        expected_balance = initial_balance + (deposit_amount * len(successful))
+
+        assert final_account.balance == expected_balance, (
+            f"CRITICAL: Balance is {final_account.balance}, expected {expected_balance}. "
+            f"RACE CONDITION IN DEPOSITS! ({len(successful)} successful deposits)"
+        )
+
+        print(
+            f"\n Concurrent deposits test PASSED:\n"
+            f"   Initial balance: ${initial_balance}\n"
+            f"   Deposits: {num_deposits} x ${deposit_amount}\n"
+            f"   Final balance: ${final_account.balance}\n"
+        )
+
+    def test_interleaved_deposits_and_withdrawals(self, db):
+        from app.domain.services.auth_service import AuthService
+        from app.infrastructure.repositories.account_repository import AccountRepository
+        from tests.conftest import TestSessionLocal
+
+        unique_email = f"race_test_mixed_{int(time.time() * 1000)}@example.com"
+
+        auth_service = AuthService(db)
+        user = auth_service.register_user(
+            email=unique_email,
+            full_name="Mixed Race Test",
+            password="password123",
+        )
+
+        account_repo = AccountRepository(db)
+        account = account_repo.get_by_user_id(user.id)
+        account.balance = Decimal("500.00")
+        db.commit()
+        account_id = account.id
+        initial_balance = account.balance
+
+        def operation(op_type: str, attempt_id: int):
+            if op_type == "withdrawal":
+                max_retries = 3
+                for retry in range(max_retries):
+                    thread_db = TestSessionLocal()
+                    try:
+                        service = WithdrawalService(thread_db)
+                        transaction = service.create_pending_withdrawal(
+                            account_id=account_id,
+                            amount=Decimal("100.00"),
+                            currency="USD",
+                            idempotency_key=f"test-w-{attempt_id}",
+                        )
+                        thread_db.commit()
+                        return {"success": True, "type": op_type, "attempt": attempt_id}
+                    except InsufficientBalanceError as e:
+                        thread_db.rollback()
+                        return {
+                            "success": False,
+                            "type": op_type,
+                            "error": str(e),
+                            "attempt": attempt_id,
+                        }
+                    except OperationalError as e:
+                        thread_db.rollback()
+                        if retry < max_retries - 1:
+                            time.sleep(0.01 * (2**retry))
+                            continue
+                        return {
+                            "success": False,
+                            "type": op_type,
+                            "error": str(e),
+                            "attempt": attempt_id,
+                        }
+                    except Exception as e:
+                        thread_db.rollback()
+                        return {
+                            "success": False,
+                            "type": op_type,
+                            "error": str(e),
+                            "attempt": attempt_id,
+                        }
+                    finally:
+                        thread_db.close()
+            else:
+                thread_db = TestSessionLocal()
+                try:
+                    service = DepositService(thread_db)
+                    transaction = service.create_pending_deposit(
+                        account_id=account_id,
+                        amount=Decimal("100.00"),
+                        currency="USD",
+                        idempotency_key=f"test-d-{attempt_id}",
+                    )
+                    service.complete_deposit(
+                        transaction_id=transaction.id,
+                        bank_transaction_id=f"BANK-{attempt_id}",
+                    )
+                    thread_db.commit()
+                    return {"success": True, "type": op_type, "attempt": attempt_id}
+                except OperationalError as e:
+                    thread_db.rollback()
+                    return {
+                        "success": False,
+                        "type": op_type,
+                        "error": str(e),
+                        "attempt": attempt_id,
+                    }
+                except Exception as e:
+                    thread_db.rollback()
+                    return {
+                        "success": False,
+                        "type": op_type,
+                        "error": str(e),
+                        "attempt": attempt_id,
+                    }
+                finally:
+                    thread_db.close()
+
+        operations_list = [("withdrawal", i) for i in range(5)] + [("deposit", i) for i in range(5)]
+
+        with ThreadPoolExecutor(max_workers=10) as executor:
+            futures = [executor.submit(operation, op_type, idx) for op_type, idx in operations_list]
+            results = [future.result() for future in as_completed(futures)]
+
+        successful_withdrawals = [r for r in results if r["success"] and r["type"] == "withdrawal"]
+        successful_deposits = [r for r in results if r["success"] and r["type"] == "deposit"]
+
+        db.commit()
+        db.expire_all()
+        account_repo = AccountRepository(db)
+        final_account = account_repo.get_by_id(account_id)
+        expected_balance = initial_balance + (Decimal("100.00") * len(successful_deposits))
+
+        assert (
+            final_account.balance == expected_balance
+        ), f"Balance mismatch: {final_account.balance} vs expected {expected_balance}"
+
+        assert final_account.balance >= 0, f"FATAL: Negative balance {final_account.balance}"
+
+        print("\n  Interleaved operations test:")
+        print(f"   Initial balance: ${initial_balance}")
+        print(f"   Successful withdrawals: {len(successful_withdrawals)}")
+        print(f"   Successful deposits: {len(successful_deposits)}")
+        print(f"   Final balance: ${final_account.balance}")
+
+    def test_high_concurrency_stress_test(self, db):
+        from app.domain.services.auth_service import AuthService
+        from app.infrastructure.repositories.account_repository import AccountRepository
+        from tests.conftest import TestSessionLocal
+
+        unique_email = f"race_test_stress_{int(time.time() * 1000)}@example.com"
+        auth_service = AuthService(db)
+        user = auth_service.register_user(
+            email=unique_email,
+            full_name="Stress Test User",
+            password="password123",
+        )
+
+        account_repo = AccountRepository(db)
+        account = account_repo.get_by_user_id(user.id)
+        account.balance = Decimal("1000.00")
+        db.commit()
+        account_id = account.id
+        initial_balance = account.balance
+
+        def random_operation(attempt_id: int):
+            import random
+
+            is_withdrawal = random.choice([True, False])
+            amount = Decimal("20.00")
+
+            if is_withdrawal:
+                max_retries = 3
+                for retry in range(max_retries):
+                    thread_db = TestSessionLocal()
+                    try:
+                        service = WithdrawalService(thread_db)
+                        transaction = service.create_pending_withdrawal(
+                            account_id=account_id,
+                            amount=amount,
+                            currency="USD",
+                            idempotency_key=f"stress-w-{attempt_id}",
+                        )
+                        thread_db.commit()
+                        return {"success": True, "type": "withdrawal", "amount": amount}
+                    except InsufficientBalanceError:
+                        thread_db.rollback()
+                        return {
+                            "success": False,
+                            "type": "withdrawal",
+                            "reason": "insufficient_balance",
+                        }
+                    except OperationalError as e:
+                        thread_db.rollback()
+                        if retry < max_retries - 1:
+                            time.sleep(0.01 * (2**retry))
+                            continue
+                        return {"success": False, "error": str(e)}
+                    except Exception as e:
+                        thread_db.rollback()
+                        return {"success": False, "error": str(e)}
+                    finally:
+                        thread_db.close()
+            else:
+
+                thread_db = TestSessionLocal()
+                try:
+                    service = DepositService(thread_db)
+                    transaction = service.create_pending_deposit(
+                        account_id=account_id,
+                        amount=amount,
+                        currency="USD",
+                        idempotency_key=f"stress-d-{attempt_id}",
+                    )
+                    service.complete_deposit(
+                        transaction_id=transaction.id,
+                        bank_transaction_id=f"BANK-{attempt_id}",
+                    )
+                    thread_db.commit()
+                    return {"success": True, "type": "deposit", "amount": amount}
+                except OperationalError as e:
+                    thread_db.rollback()
+                    return {"success": False, "error": str(e)}
+                except Exception as e:
+                    thread_db.rollback()
+                    return {"success": False, "error": str(e)}
+                finally:
+                    thread_db.close()
+
+        num_operations = 50
+
+        with ThreadPoolExecutor(max_workers=20) as executor:
+            futures = [executor.submit(random_operation, i) for i in range(num_operations)]
+            results = [future.result() for future in as_completed(futures)]
+
+        successful_withdrawals = [
+            r for r in results if r.get("success") and r["type"] == "withdrawal"
+        ]
+        successful_deposits = [r for r in results if r.get("success") and r["type"] == "deposit"]
+        failed_operations = [r for r in results if not r.get("success")]
+
+        db.commit()
+        db.expire_all()
+        account_repo = AccountRepository(db)
+        final_account = account_repo.get_by_id(account_id)
+
+        total_withdrawn = Decimal("0.00")
+        total_deposited = sum(r["amount"] for r in successful_deposits)
+        expected_balance = initial_balance + total_deposited
+
+        assert (
+            final_account.balance == expected_balance
+        ), f"Balance mismatch: {final_account.balance} vs expected {expected_balance}"
+
+        assert (
+            final_account.balance >= 0
+        ), f"FATAL: Negative balance {final_account.balance}! RACE CONDITION!"
+
+        print(
+            f"\n Stress test completed:\n"
+            f"   Total operations: {num_operations}\n"
+            f"   Successful withdrawals: {len(successful_withdrawals)}\n"
+            f"   Successful deposits: {len(successful_deposits)}\n"
+            f"   Failed operations: {len(failed_operations)}\n"
+            f"   Initial balance: ${initial_balance}\n"
+            f"   Total withdrawn: ${total_withdrawn}\n"
+            f"   Total deposited: ${total_deposited}\n"
+            f"   Final balance: ${final_account.balance}"
+        )

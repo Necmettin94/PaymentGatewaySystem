@@ -1,0 +1,1112 @@
+{
+	"info": {
+		"name": "Payment Gateway API - Complete Collection",
+		"description": "Production-grade payment gateway system with async transaction processing. Includes authentication, deposits, withdrawals, balance queries, webhooks, and system monitoring.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "payment-gateway-v1"
+	},
+	"auth": {
+		"type": "bearer",
+		"bearer": [
+			{
+				"key": "token",
+				"value": "{{access_token}}",
+				"type": "string"
+			}
+		]
+	},
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://localhost:8000",
+			"type": "string"
+		},
+		{
+			"key": "access_token",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "user_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "account_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "deposit_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "withdrawal_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "transaction_id",
+			"value": "",
+			"type": "string"
+		},
+		{
+			"key": "idempotency_key",
+			"value": "",
+			"type": "string"
+		}
+	],
+	"item": [
+		{
+			"name": "1. Authentication",
+			"item": [
+				{
+					"name": "Register New User",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token);",
+									"    pm.collectionVariables.set('user_id', jsonData.user.id);",
+									"    console.log('✅ Token saved:', jsonData.access_token.substring(0, 20) + '...');",
+									"    console.log('✅ User ID saved:', jsonData.user.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Generate unique email for testing",
+									"const timestamp = Date.now();",
+									"pm.collectionVariables.set('test_email', `testuser${timestamp}@example.com`);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{test_email}}\",\n  \"full_name\": \"Test User\",\n  \"password\": \"SecurePassword123!\",\n  \"webhook_url\": \"https://webhook.site/your-unique-url\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"register"
+							]
+						},
+						"description": "Register a new user account. Returns JWT access token.\n\nResponse automatically saves:\n- access_token → Used for authentication\n- user_id → Used for subsequent requests"
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token);",
+									"    pm.collectionVariables.set('user_id', jsonData.user.id);",
+									"    console.log('✅ Logged in successfully');",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{test_email}}\",\n  \"password\": \"SecurePassword123!\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/login",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"login"
+							]
+						},
+						"description": "Authenticate existing user and get JWT token."
+					},
+					"response": []
+				}
+			],
+			"description": "User registration and authentication endpoints."
+		},
+		{
+			"name": "2. User & Balance",
+			"item": [
+				{
+					"name": "Get Current User Info",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me"
+							]
+						},
+						"description": "Get current authenticated user's profile information."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Balance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('account_id', jsonData.account_id);",
+									"    console.log('💰 Current Balance:', jsonData.balance, jsonData.currency);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/balance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"balance"
+							]
+						},
+						"description": "Query current user's account balance.\n\nRate Limit: 10 requests/min per user"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Transaction History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/transactions?skip=0&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"transactions"
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0",
+									"description": "Pagination offset"
+								},
+								{
+									"key": "limit",
+									"value": "20",
+									"description": "Max items (max: 100)"
+								}
+							]
+						},
+						"description": "Get user's complete transaction history (deposits + withdrawals).\n\nRate Limit: 20 requests/min per user"
+					},
+					"response": []
+				}
+			],
+			"description": "User profile and balance query endpoints."
+		},
+		{
+			"name": "3. Deposits",
+			"item": [
+				{
+					"name": "Create Deposit",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Generate unique idempotency key",
+									"const uuid = require('uuid');",
+									"pm.collectionVariables.set('idempotency_key', uuid.v4());"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 202) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('deposit_id', jsonData.id);",
+									"    pm.collectionVariables.set('transaction_id', jsonData.id);",
+									"    console.log('✅ Deposit created:', jsonData.id);",
+									"    console.log('📊 Status:', jsonData.status);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}",
+								"description": "Required for idempotency"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100.00,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits"
+							]
+						},
+						"description": "Create a new deposit transaction (async processing).\n\n✅ Returns 202 ACCEPTED immediately\n🔄 Transaction processed asynchronously via Celery\n🔑 Idempotency-Key header is REQUIRED"
+					},
+					"response": []
+				},
+				{
+					"name": "Create Deposit (Idempotency Test)",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"// Should return same transaction ID as previous request",
+									"if (pm.response.code === 202) {",
+									"    const jsonData = pm.response.json();",
+									"    console.log('🔁 Idempotent response - Same ID:', jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}",
+								"description": "Same key as previous request"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100.00,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits"
+							]
+						},
+						"description": "Test idempotency: Using the same Idempotency-Key should return the cached response with same transaction ID."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Deposit by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits/{{deposit_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits",
+								"{{deposit_id}}"
+							]
+						},
+						"description": "Get details of a specific deposit transaction.\n\nCheck status: PENDING → PROCESSING → SUCCESS/FAILED"
+					},
+					"response": []
+				},
+				{
+					"name": "List All Deposits",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits?skip=0&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits"
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "List all deposits for current user (paginated)."
+					},
+					"response": []
+				}
+			],
+			"description": "Deposit transaction operations with async processing."
+		},
+		{
+			"name": "4. Withdrawals",
+			"item": [
+				{
+					"name": "Create Withdrawal",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const uuid = require('uuid');",
+									"pm.collectionVariables.set('idempotency_key', uuid.v4());"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 202) {",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('withdrawal_id', jsonData.id);",
+									"    pm.collectionVariables.set('transaction_id', jsonData.id);",
+									"    console.log('✅ Withdrawal created:', jsonData.id);",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 50.00,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/withdrawals",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"withdrawals"
+							]
+						},
+						"description": "Create a new withdrawal transaction.\n\n⚠️ Requires sufficient balance\n✅ Balance reserved immediately\n🔄 Bank processing async"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Withdrawal by ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/withdrawals/{{withdrawal_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"withdrawals",
+								"{{withdrawal_id}}"
+							]
+						},
+						"description": "Get details of a specific withdrawal transaction."
+					},
+					"response": []
+				},
+				{
+					"name": "List All Withdrawals",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/withdrawals?skip=0&limit=20",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"withdrawals"
+							],
+							"query": [
+								{
+									"key": "skip",
+									"value": "0"
+								},
+								{
+									"key": "limit",
+									"value": "20"
+								}
+							]
+						},
+						"description": "List all withdrawals for current user (paginated)."
+					},
+					"response": []
+				},
+				{
+					"name": "Create Withdrawal (Insufficient Balance)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const uuid = require('uuid');",
+									"pm.collectionVariables.set('idempotency_key', uuid.v4());"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 999999.00,\n  \"currency\": \"USD\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/withdrawals",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"withdrawals"
+							]
+						},
+						"description": "Test case: Attempt withdrawal with insufficient balance.\n\nExpected: 400 Bad Request with error message"
+					},
+					"response": []
+				}
+			],
+			"description": "Withdrawal transaction operations with balance validation."
+		},
+		{
+			"name": "5. Webhooks",
+			"item": [
+				{
+					"name": "Bank Callback (Simulated)",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Generate HMAC signature for webhook",
+									"const CryptoJS = require('crypto-js');",
+									"const secret = 'bank-webhook-secret-key-change-in-production';",
+									"",
+									"const payload = pm.request.body.raw;",
+									"const signature = CryptoJS.HmacSHA256(payload, secret).toString(CryptoJS.enc.Hex);",
+									"",
+									"pm.collectionVariables.set('webhook_signature', signature);",
+									"console.log('🔐 Generated signature:', signature);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "POST",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							},
+							{
+								"key": "X-Bank-Signature",
+								"value": "{{webhook_signature}}",
+								"description": "HMAC-SHA256 signature"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"transaction_id\": \"{{transaction_id}}\",\n  \"bank_transaction_id\": \"BANK-TX-12345\",\n  \"status\": \"SUCCESS\",\n  \"message\": \"Transaction completed successfully\",\n  \"error_code\": null,\n  \"timestamp\": {{$timestamp}}\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/webhooks/bank-callback",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhooks",
+								"bank-callback"
+							]
+						},
+						"description": "Simulated bank callback webhook.\n\n🔐 Requires HMAC-SHA256 signature verification\n⏱️ Timestamp must be within 5 minutes\n✅ Updates transaction status and balance"
+					},
+					"response": []
+				},
+				{
+					"name": "Get Webhook Deliveries",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/webhooks/deliveries",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhooks",
+								"deliveries"
+							]
+						},
+						"description": "Get all webhook deliveries for current user's transactions."
+					},
+					"response": []
+				},
+				{
+					"name": "Get Webhook Deliveries by Transaction",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/webhooks/deliveries?transaction_id={{transaction_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"webhooks",
+								"deliveries"
+							],
+							"query": [
+								{
+									"key": "transaction_id",
+									"value": "{{transaction_id}}"
+								}
+							]
+						},
+						"description": "Get webhook deliveries for a specific transaction."
+					},
+					"response": []
+				}
+			],
+			"description": "Webhook endpoints for bank callbacks and delivery tracking."
+		},
+		{
+			"name": "6. System & Monitoring",
+			"item": [
+				{
+					"name": "Health Check",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/health",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"health"
+							]
+						},
+						"description": "System health check endpoint.\n\nIncludes:\n- API status\n- Circuit breaker state\n- Timestamp"
+					},
+					"response": []
+				},
+				{
+					"name": "Prometheus Metrics",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/metrics",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"metrics"
+							]
+						},
+						"description": "Prometheus metrics endpoint for monitoring.\n\nMetrics include:\n- Transaction counts by type/status\n- Account balances\n- Request durations\n- Active transactions"
+					},
+					"response": []
+				},
+				{
+					"name": "API Documentation (Swagger)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/docs",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"docs"
+							]
+						},
+						"description": "Interactive API documentation (Swagger UI).\n\nOpen in browser to see all endpoints and schemas."
+					},
+					"response": []
+				},
+				{
+					"name": "Flower (Celery Monitoring)",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "http://localhost:5555",
+							"protocol": "http",
+							"host": [
+								"localhost"
+							],
+							"port": "5555"
+						},
+						"description": "Flower dashboard for Celery task monitoring.\n\n📊 Monitor:\n- Active/completed tasks\n- Task execution times\n- Worker status\n- Queue lengths"
+					},
+					"response": []
+				},
+				{
+					"name": "Admin Panel",
+					"request": {
+						"auth": {
+							"type": "noauth"
+						},
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/admin",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"admin"
+							]
+						},
+						"description": "Admin panel for transaction management.\n\nOpen in browser to:\n- View all transactions\n- Check failed tasks (DLQ)\n- Manage users and accounts"
+					},
+					"response": []
+				}
+			],
+			"description": "System health, metrics, and monitoring endpoints."
+		},
+		{
+			"name": "7. Complete Workflow Example",
+			"item": [
+				{
+					"name": "Step 1: Register User",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const timestamp = Date.now();",
+									"pm.collectionVariables.set('test_email', `workflow${timestamp}@example.com`);"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('User registered successfully', function() {",
+									"    pm.response.to.have.status(201);",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('access_token', jsonData.access_token);",
+									"    pm.collectionVariables.set('user_id', jsonData.user.id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"email\": \"{{test_email}}\",\n  \"full_name\": \"Workflow Test User\",\n  \"password\": \"TestPassword123!\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/auth/register",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"auth",
+								"register"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Step 2: Check Initial Balance",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Initial balance is 0', function() {",
+									"    const jsonData = pm.response.json();",
+									"    pm.expect(parseFloat(jsonData.balance)).to.equal(0);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/balance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"balance"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Step 3: Create Deposit",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const uuid = require('uuid');",
+									"pm.collectionVariables.set('idempotency_key', uuid.v4());"
+								],
+								"type": "text/javascript"
+							}
+						},
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"pm.test('Deposit accepted', function() {",
+									"    pm.response.to.have.status(202);",
+									"    const jsonData = pm.response.json();",
+									"    pm.collectionVariables.set('deposit_id', jsonData.id);",
+									"});"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 100.00,\n  \"currency\": \"USD\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Step 4: Wait and Check Deposit Status",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"// Wait 3 seconds for async processing",
+									"setTimeout(function(){}, 3000);"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/deposits/{{deposit_id}}",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"deposits",
+								"{{deposit_id}}"
+							]
+						},
+						"description": "⏱️ Wait a few seconds before running to allow async processing"
+					},
+					"response": []
+				},
+				{
+					"name": "Step 5: Check Updated Balance",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/balance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"balance"
+							]
+						},
+						"description": "Balance should be $100 after deposit completes"
+					},
+					"response": []
+				},
+				{
+					"name": "Step 6: Create Withdrawal",
+					"event": [
+						{
+							"listen": "prerequest",
+							"script": {
+								"exec": [
+									"const uuid = require('uuid');",
+									"pm.collectionVariables.set('idempotency_key', uuid.v4());"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{
+								"key": "Idempotency-Key",
+								"value": "{{idempotency_key}}"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"amount\": 30.00,\n  \"currency\": \"USD\"\n}",
+							"options": {
+								"raw": {
+									"language": "json"
+								}
+							}
+						},
+						"url": {
+							"raw": "{{base_url}}/api/v1/withdrawals",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"withdrawals"
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Step 7: Check Final Balance",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/balance",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"balance"
+							]
+						},
+						"description": "⏱️ Wait a few seconds\n\nFinal balance should be $70 (100 - 30)"
+					},
+					"response": []
+				},
+				{
+					"name": "Step 8: View Transaction History",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/api/v1/users/me/transactions",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"api",
+								"v1",
+								"users",
+								"me",
+								"transactions"
+							]
+						},
+						"description": "View all transactions (deposit + withdrawal)"
+					},
+					"response": []
+				}
+			],
+			"description": "Complete end-to-end workflow:\n1. Register → 2. Check balance → 3. Deposit → 4. Wait → 5. Check balance → 6. Withdraw → 7. Check balance → 8. View history"
+		}
+	]
+}

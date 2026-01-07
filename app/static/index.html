@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Payment Gateway - Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .navbar { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+        .card { border: none; box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075); margin-bottom: 1.5rem; }
+        .balance-card { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .badge-pending { background-color: #ffc107; }
+        .badge-processing { background-color: #17a2b8; }
+        .badge-success { background-color: #28a745; }
+        .badge-failed { background-color: #dc3545; }
+        .badge-pending_review { background-color: #fd7e14; }
+        .transaction-deposit { border-left: 4px solid #28a745; }
+        .transaction-withdrawal { border-left: 4px solid #dc3545; }
+        .login-container { max-width: 400px; margin: 100px auto; }
+        .dashboard-container { display: none; }
+        #loading { display: none; }
+    </style>
+</head>
+<body>
+    <!-- Loading Spinner -->
+    <div id="loading" class="position-fixed top-50 start-50 translate-middle">
+        <div class="spinner-border text-primary" style="width: 3rem; height: 3rem;" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    </div>
+
+    <!-- Login Section -->
+    <div id="loginSection" class="login-container">
+        <div class="card">
+            <div class="card-body">
+                <h3 class="card-title text-center mb-4">
+                    <i class="bi bi-credit-card-fill text-primary"></i> Payment Gateway
+                </h3>
+                <div id="loginError" class="alert alert-danger d-none"></div>
+                <form id="loginForm">
+                    <div class="mb-3">
+                        <label for="email" class="form-label">Email</label>
+                        <input type="email" class="form-control" id="email" value="alice@example.com" required>
+                    </div>
+                    <div class="mb-3">
+                        <label for="password" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="password" value="password123" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary w-100">
+                        <i class="bi bi-box-arrow-in-right"></i> Login
+                    </button>
+                </form>
+                <div class="text-center mt-3">
+                    <p class="text-muted mb-0">
+                        Don't have an account?
+                        <a href="/static/register.html" class="text-decoration-none fw-bold">Register here</a>
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dashboard Section -->
+    <div id="dashboardSection" class="dashboard-container">
+        <!-- Navbar -->
+        <nav class="navbar navbar-dark mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand">
+                    <i class="bi bi-credit-card-fill"></i> Payment Gateway
+                </span>
+                <div class="d-flex align-items-center">
+                    <span class="text-white me-3" id="userEmail"></span>
+                    <button class="btn btn-outline-light btn-sm" id="logoutBtn">
+                        <i class="bi bi-box-arrow-right"></i> Logout
+                    </button>
+                </div>
+            </div>
+        </nav>
+
+        <div class="container-fluid">
+            <div class="row">
+                <!-- Balance Card -->
+                <div class="col-md-4">
+                    <div class="card balance-card">
+                        <div class="card-body">
+                            <h5 class="card-title">Current Balance</h5>
+                            <h2 class="mb-0">
+                                <span id="balanceAmount">$0.00</span>
+                                <button class="btn btn-light btn-sm float-end" onclick="refreshBalance()" title="Refresh balance manually">
+                                    <i class="bi bi-arrow-clockwise"></i>
+                                </button>
+                            </h2>
+                            <small id="balanceUpdated" class="text-white-50">Last updated: --</small>
+                            <small class="text-white-50 d-block mt-1">
+                                <i class="bi bi-clock"></i> Auto-refresh every 15s
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- Deposit Form -->
+                    <div class="card">
+                        <div class="card-header bg-success text-white">
+                            <i class="bi bi-plus-circle-fill"></i> Deposit
+                        </div>
+                        <div class="card-body">
+                            <form id="depositForm">
+                                <div class="mb-3">
+                                    <label class="form-label">Amount (USD)</label>
+                                    <input type="number" class="form-control" id="depositAmount"
+                                           step="0.01" min="0.01" placeholder="100.00" required>
+                                </div>
+                                <button type="submit" class="btn btn-success w-100">
+                                    <i class="bi bi-arrow-down-circle"></i> Deposit
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+
+                    <!-- Withdrawal Form -->
+                    <div class="card">
+                        <div class="card-header bg-danger text-white">
+                            <i class="bi bi-dash-circle-fill"></i> Withdraw
+                        </div>
+                        <div class="card-body">
+                            <form id="withdrawalForm">
+                                <div class="mb-3">
+                                    <label class="form-label">Amount (USD)</label>
+                                    <input type="number" class="form-control" id="withdrawalAmount"
+                                           step="0.01" min="0.01" placeholder="50.00" required>
+                                </div>
+                                <button type="submit" class="btn btn-danger w-100">
+                                    <i class="bi bi-arrow-up-circle"></i> Withdraw
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transactions Table -->
+                <div class="col-md-8">
+                    <div class="card">
+                        <div class="card-header bg-white">
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h5 class="mb-0">
+                                    <i class="bi bi-clock-history"></i> Transaction History
+                                </h5>
+                                <button class="btn btn-outline-primary btn-sm" onclick="refreshTransactions()">
+                                    <i class="bi bi-arrow-clockwise"></i> Refresh
+                                </button>
+                            </div>
+                        </div>
+                        <div class="card-body p-0">
+                            <div id="transactionsContainer" class="table-responsive">
+                                <table class="table table-hover mb-0">
+                                    <thead class="table-light">
+                                        <tr>
+                                            <th>Type</th>
+                                            <th>Amount</th>
+                                            <th>Status</th>
+                                            <th>Date</th>
+                                            <th>Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="transactionsTable">
+                                        <tr>
+                                            <td colspan="5" class="text-center text-muted py-4">
+                                                No transactions yet
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="card-footer bg-white border-top">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <div class="text-muted small" id="paginationInfo">
+                                        Showing <span id="currentCount">0</span> transactions
+                                    </div>
+                                    <div class="btn-group" role="group">
+                                        <button class="btn btn-outline-secondary btn-sm" id="prevBtn" onclick="loadPreviousPage()" disabled>
+                                            <i class="bi bi-chevron-left"></i> Previous
+                                        </button>
+                                        <button class="btn btn-outline-secondary btn-sm" id="nextBtn" onclick="loadNextPage()" disabled>
+                                            Next <i class="bi bi-chevron-right"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Alerts -->
+                    <div id="alertContainer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        const API_BASE = window.location.origin;
+        let authToken = localStorage.getItem('authToken');
+        let currentUser = JSON.parse(localStorage.getItem('currentUser') || 'null');
+        let refreshInterval;
+
+        // Pagination state
+        let currentSkip = 0;
+        let currentLimit = 10;
+        let hasMoreTransactions = false;
+
+        // Initialize
+        if (authToken && currentUser) {
+            showDashboard();
+        }
+        function generateUUID() {
+            if (typeof crypto !== 'undefined' && crypto.randomUUID) {
+                return crypto.randomUUID();
+            }
+            return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+        }
+        // Login Form
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+
+            try {
+                showLoading(true);
+                const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Login failed');
+                }
+
+                authToken = data.access_token;
+                currentUser = data.user;
+                localStorage.setItem('authToken', authToken);
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+
+                showDashboard();
+            } catch (error) {
+                showError('loginError', error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // Logout
+        document.getElementById('logoutBtn').addEventListener('click', () => {
+            localStorage.removeItem('authToken');
+            localStorage.removeItem('currentUser');
+            authToken = null;
+            currentUser = null;
+            clearInterval(refreshInterval);
+            document.getElementById('loginSection').style.display = 'block';
+            document.getElementById('dashboardSection').style.display = 'none';
+        });
+
+        // Show Dashboard
+        function showDashboard() {
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('dashboardSection').style.display = 'block';
+            document.getElementById('userEmail').textContent = currentUser.email;
+            refreshBalance();
+            refreshTransactions();
+
+            // Auto-refresh every 15 seconds (to avoid rate limiting)
+            // Rate limit: 10 req/min for balance = max 1 req every 6 seconds
+            // We use 15 seconds to be safe
+            refreshInterval = setInterval(() => {
+                refreshBalance();
+                refreshTransactions();
+            }, 15000);
+        }
+
+        // Refresh Balance
+        async function refreshBalance() {
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/users/me/balance`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                const data = await response.json();
+
+                // Handle rate limiting gracefully
+                if (response.status === 429) {
+                    console.warn('Rate limited - will retry on next interval');
+                    document.getElementById('balanceUpdated').textContent =
+                        `Rate limited - waiting...`;
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Failed to fetch balance');
+
+                document.getElementById('balanceAmount').textContent =
+                    `$${parseFloat(data.balance).toFixed(2)}`;
+                document.getElementById('balanceUpdated').textContent =
+                    `Last updated: ${new Date().toLocaleTimeString()}`;
+            } catch (error) {
+                console.error('Balance fetch error:', error);
+            }
+        }
+
+        // Refresh Transactions
+        async function refreshTransactions(skip = 0) {
+            try {
+                currentSkip = skip;
+                const response = await fetch(`${API_BASE}/api/v1/users/me/transactions?skip=${skip}&limit=${currentLimit + 1}`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+
+                // Handle rate limiting gracefully
+                if (response.status === 429) {
+                    console.warn('Rate limited for transactions - will retry on next interval');
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Failed to fetch transactions');
+
+                const transactions = await response.json();
+
+                // Check if there are more transactions
+                hasMoreTransactions = transactions.length > currentLimit;
+                const displayTransactions = hasMoreTransactions ? transactions.slice(0, currentLimit) : transactions;
+
+                renderTransactions(displayTransactions);
+                updatePaginationButtons();
+            } catch (error) {
+                console.error('Transactions fetch error:', error);
+            }
+        }
+
+        // Pagination functions
+        function loadNextPage() {
+            refreshTransactions(currentSkip + currentLimit);
+        }
+
+        function loadPreviousPage() {
+            const newSkip = Math.max(0, currentSkip - currentLimit);
+            refreshTransactions(newSkip);
+        }
+
+        function updatePaginationButtons() {
+            const prevBtn = document.getElementById('prevBtn');
+            const nextBtn = document.getElementById('nextBtn');
+
+            // Disable previous button if on first page
+            prevBtn.disabled = currentSkip === 0;
+
+            // Disable next button if no more transactions
+            nextBtn.disabled = !hasMoreTransactions;
+        }
+
+        // Render Transactions
+        function renderTransactions(transactions) {
+            const tbody = document.getElementById('transactionsTable');
+            const currentCount = document.getElementById('currentCount');
+
+            if (transactions.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="text-center text-muted py-4">
+                            No transactions yet
+                        </td>
+                    </tr>
+                `;
+                currentCount.textContent = '0';
+                return;
+            }
+
+            tbody.innerHTML = transactions.map(tx => `
+                <tr class="transaction-${tx.transaction_type.toLowerCase()}">
+                    <td>
+                        <i class="bi bi-${tx.transaction_type === 'DEPOSIT' ? 'arrow-down-circle text-success' : 'arrow-up-circle text-danger'}"></i>
+                        ${tx.transaction_type}
+                    </td>
+                    <td><strong>$${parseFloat(tx.amount).toFixed(2)}</strong></td>
+                    <td>
+                        <span class="badge badge-${tx.status.toLowerCase()}">
+                            ${tx.status}
+                        </span>
+                    </td>
+                    <td>${new Date(tx.created_at).toLocaleString()}</td>
+                    <td>
+                        <button class="btn btn-sm btn-outline-secondary" onclick="viewTransaction('${tx.id}', '${tx.transaction_type}')">
+                            <i class="bi bi-eye"></i>
+                        </button>
+                    </td>
+                </tr>
+            `).join('');
+
+            // Update pagination info
+            const startNum = currentSkip + 1;
+            const endNum = currentSkip + transactions.length;
+            currentCount.textContent = `${startNum}-${endNum}`;
+        }
+
+        // Deposit Form
+        document.getElementById('depositForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const amount = parseFloat(document.getElementById('depositAmount').value);
+            const idempotencyKey = generateUUID();
+            try {
+                showLoading(true);
+                const response = await fetch(`${API_BASE}/api/v1/deposits`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`,
+                        'Idempotency-Key': idempotencyKey
+                    },
+                    body: JSON.stringify({ amount, currency: 'USD' })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || 'Deposit failed');
+                }
+
+                showAlert('success', `Deposit of $${amount.toFixed(2)} initiated! Processing in background...`);
+                document.getElementById('depositForm').reset();
+                // Refresh transactions immediately to show new PENDING transaction
+                // Don't refresh balance yet (will update when transaction completes)
+                setTimeout(() => {
+                    refreshTransactions();
+                }, 1000);
+            } catch (error) {
+                showAlert('danger', error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // Withdrawal Form
+        document.getElementById('withdrawalForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const amount = parseFloat(document.getElementById('withdrawalAmount').value);
+            const idempotencyKey = generateUUID();
+            try {
+                showLoading(true);
+                const response = await fetch(`${API_BASE}/api/v1/withdrawals`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${authToken}`,
+                'Idempotency-Key': idempotencyKey
+                    },
+                    body: JSON.stringify({ amount, currency: 'USD' })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.message || data.detail || 'Withdrawal failed');
+                }
+
+                showAlert('success', `Withdrawal of $${amount.toFixed(2)} initiated! Balance reserved.`);
+                document.getElementById('withdrawalForm').reset();
+                // Refresh immediately to show updated balance and new transaction
+                setTimeout(() => {
+                    refreshBalance();
+                    refreshTransactions();
+                }, 1000);
+            } catch (error) {
+                showAlert('danger', error.message);
+            } finally {
+                showLoading(false);
+            }
+        });
+
+        // View Transaction Details
+        async function viewTransaction(id, type) {
+            const endpoint = type === 'DEPOSIT' ? 'deposits' : 'withdrawals';
+            try {
+                const response = await fetch(`${API_BASE}/api/v1/${endpoint}/${id}`, {
+                    headers: { 'Authorization': `Bearer ${authToken}` }
+                });
+                const data = await response.json();
+                alert(`Transaction Details:\n\nID: ${data.id}\nType: ${data.transaction_type}\nAmount: $${data.amount}\nStatus: ${data.status}\nCreated: ${new Date(data.created_at).toLocaleString()}\n${data.bank_transaction_id ? 'Bank TX ID: ' + data.bank_transaction_id : ''}`);
+            } catch (error) {
+                showAlert('danger', 'Failed to fetch transaction details');
+            }
+        }
+
+        // Utility Functions
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.classList.remove('d-none');
+            setTimeout(() => el.classList.add('d-none'), 5000);
+        }
+
+        function showAlert(type, message) {
+            const container = document.getElementById('alertContainer');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type} alert-dismissible fade show`;
+            alert.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            container.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+    </script>
+</body>
+</html>
